@@ -326,26 +326,45 @@
 }
 
 // 添加获取主窗口的辅助方法
-+ (UIWindow *)mainWindow {
+static UIWindow* GetMainWindow(void) {
     UIWindow *window = nil;
+    
     if (@available(iOS 15.0, *)) {
-        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        for (UIWindowScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (scene.activationState == UISceneActivationStateForegroundActive) {
                 window = scene.windows.firstObject;
+                for (UIWindow *w in scene.windows) {
+                    if (w.isKeyWindow) {
+                        window = w;
+                        break;
+                    }
+                }
                 break;
             }
         }
     } else if (@available(iOS 13.0, *)) {
-        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-            if ([scene isKindOfClass:[UIWindowScene class]]) {
-                UIWindowScene *windowScene = (UIWindowScene *)scene;
-                window = windowScene.windows.firstObject;
+        for (UIWindowScene *scene in (NSSet<UIWindowScene *> *)UIApplication.sharedApplication.connectedScenes) {
+            window = scene.windows.firstObject;
+            for (UIWindow *w in scene.windows) {
+                if (w.isKeyWindow) {
+                    window = w;
+                    break;
+                }
+            }
+            if (window) break;
+        }
+    }
+    
+    if (!window) {
+        window = [[UIApplication sharedApplication].windows firstObject];
+        for (UIWindow *w in [UIApplication sharedApplication].windows) {
+            if (w.isKeyWindow) {
+                window = w;
                 break;
             }
         }
-    } else {
-        window = [[UIApplication sharedApplication] keyWindow];
     }
+    
     return window;
 }
 
@@ -1115,37 +1134,36 @@
 %hook AWEPlayInteractionUserAvatarElement
 
 - (void)onFollowViewClicked:(UITapGestureRecognizer *)gesture {
-//    NSLog(@"拦截到关注按钮点击");
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYfollowTips"]) {
-        
         dispatch_async(dispatch_get_main_queue(), ^{
             UIAlertController *alertController = [UIAlertController
-                                                  alertControllerWithTitle:@"关注确认"
-                                                  message:@"是否确认关注？"
-                                                  preferredStyle:UIAlertControllerStyleAlert];
+                                                alertControllerWithTitle:@"关注确认"
+                                                message:@"是否确认关注？"
+                                                preferredStyle:UIAlertControllerStyleAlert];
             
             UIAlertAction *cancelAction = [UIAlertAction
-                                           actionWithTitle:@"取消"
-                                           style:UIAlertActionStyleCancel
-                                           handler:nil];
+                                         actionWithTitle:@"取消"
+                                         style:UIAlertActionStyleCancel
+                                         handler:nil];
             
             UIAlertAction *confirmAction = [UIAlertAction
-                                            actionWithTitle:@"确定"
-                                            style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction * _Nonnull action) {
+                                          actionWithTitle:@"确定"
+                                          style:UIAlertActionStyleDefault
+                                          handler:^(UIAlertAction * _Nonnull action) {
                 %orig(gesture);
             }];
             
             [alertController addAction:cancelAction];
             [alertController addAction:confirmAction];
             
-            UIViewController *topController = [UIApplication sharedApplication].keyWindow.rootViewController;
+            UIWindow *mainWindow = GetMainWindow();
+            UIViewController *topController = mainWindow.rootViewController;
             while (topController.presentedViewController) {
                 topController = topController.presentedViewController;
             }
             [topController presentViewController:alertController animated:YES completion:nil];
         });
-    }else {
+    } else {
         %orig;
     }
 }
@@ -1410,6 +1428,11 @@
 
 @interface NSURLSession (Private)
 + (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
+@end
+
+// 添加 URL Protocol 处理类
+@interface DYYYURLProtocol : NSURLProtocol <NSURLSessionDelegate>
+@property (nonatomic, strong) NSURLSessionDataTask *task;
 @end
 
 // 添加日志管理器
