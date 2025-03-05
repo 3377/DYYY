@@ -302,7 +302,8 @@
 }
 
 - (void)show {
-    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
+    UIViewController *topVC = mainWindow.rootViewController;
     while (topVC.presentedViewController) {
         topVC = topVC.presentedViewController;
     }
@@ -322,6 +323,30 @@
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+// 添加获取主窗口的辅助方法
++ (UIWindow *)mainWindow {
+    UIWindow *window = nil;
+    if (@available(iOS 15.0, *)) {
+        for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState == UISceneActivationStateForegroundActive) {
+                window = scene.windows.firstObject;
+                break;
+            }
+        }
+    } else if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                window = windowScene.windows.firstObject;
+                break;
+            }
+        }
+    } else {
+        window = [[UIApplication sharedApplication] keyWindow];
+    }
+    return window;
 }
 
 @end
@@ -370,9 +395,9 @@
             Class FeedTableVC = NSClassFromString(@"AWEFeedTableViewController");
             UIViewController *feedVC = nil;
             
-            UIWindow *keyWindow = [UIApplication sharedApplication].windows.firstObject;
-            if (keyWindow && keyWindow.rootViewController) {
-                feedVC = [self findViewController:keyWindow.rootViewController ofClass:FeedTableVC];
+            UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
+            if (mainWindow && mainWindow.rootViewController) {
+                feedVC = [self findViewController:mainWindow.rootViewController ofClass:FeedTableVC];
                 if (feedVC) {
                     [feedVC setValue:@YES forKey:@"pureMode"];
                     if (timer) {
@@ -1155,14 +1180,15 @@
             [alertController addAction:cancelAction];
             [alertController addAction:confirmAction];
 
-            UIViewController *topController = [UIApplication sharedApplication].keyWindow.rootViewController;
+            UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
+            UIViewController *topController = mainWindow.rootViewController;
             while (topController.presentedViewController) {
                 topController = topController.presentedViewController;
             }
             [topController presentViewController:alertController animated:YES completion:nil];
         });
 
-        return nil; // 阻止原始 block 立即执行
+        return nil;
     }
 
     return r;
@@ -1425,17 +1451,17 @@
             }
             
             // 获取当前视图层级
-            UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-            if (keyWindow) {
+            UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
+            if (mainWindow) {
                 [debugInfo appendFormat:@"\n=== 当前视图层级 ===\n"];
-                [self dumpView:keyWindow withIndent:0 toString:debugInfo];
+                [self dumpView:mainWindow withIndent:0 toString:debugInfo];
             }
             
             [[DYYYDebugViewController sharedInstance] appendDebugInfo:debugInfo];
             [[DYYYDebugViewController sharedInstance] show];
             
             // 尝试查找和隐藏豆包相关视图
-            [self findAndHideDoupackViews:keyWindow];
+            [self findAndHideDoupackViews:mainWindow];
             
             // 发送通知以触发其他隐藏机制
             [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYDoupackDetected" object:nil];
@@ -1519,6 +1545,11 @@
 @end
 
 // 添加通知观察者
+@interface UIViewController (DYYYAdditions)
+- (void)handleDoupackDetected:(NSNotification *)notification;
+- (void)findAndHideDoupackViewsInView:(UIView *)view;
+@end
+
 %hook UIViewController
 
 - (void)viewDidLoad {
@@ -1533,7 +1564,6 @@
 %new
 - (void)handleDoupackDetected:(NSNotification *)notification {
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
-        // 递归查找并隐藏豆包相关视图
         [self findAndHideDoupackViewsInView:self.view];
     }
 }
