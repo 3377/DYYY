@@ -335,39 +335,36 @@ static UIWindow* GetMainWindow(void) {
     UIWindow *window = nil;
     
     if (@available(iOS 15.0, *)) {
-        for (UIWindowScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (scene.activationState == UISceneActivationStateForegroundActive) {
-                window = scene.windows.firstObject;
-                for (UIWindow *w in scene.windows) {
-                    if (w.isKeyWindow) {
-                        window = w;
-                        break;
+        NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
+        for (UIScene *scene in scenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                if (windowScene.activationState == UISceneActivationStateForegroundActive) {
+                    window = windowScene.keyWindow;
+                    if (!window) {
+                        window = windowScene.windows.firstObject;
                     }
-                }
-                break;
-            }
-        }
-    } else if (@available(iOS 13.0, *)) {
-        for (UIWindowScene *scene in (NSSet<UIWindowScene *> *)UIApplication.sharedApplication.connectedScenes) {
-            window = scene.windows.firstObject;
-            for (UIWindow *w in scene.windows) {
-                if (w.isKeyWindow) {
-                    window = w;
                     break;
                 }
             }
-            if (window) break;
+        }
+    } else if (@available(iOS 13.0, *)) {
+        NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
+        for (UIScene *scene in scenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                window = windowScene.keyWindow;
+                if (!window) {
+                    window = windowScene.windows.firstObject;
+                }
+                if (window) break;
+            }
         }
     }
     
+    // 如果上面的方法都没找到窗口，使用传统方法
     if (!window) {
-        window = [[UIApplication sharedApplication].windows firstObject];
-        for (UIWindow *w in [UIApplication sharedApplication].windows) {
-            if (w.isKeyWindow) {
-                window = w;
-                break;
-            }
-        }
+        window = UIApplication.sharedApplication.keyWindow;
     }
     
     return window;
@@ -1559,8 +1556,8 @@ static UIWindow* GetMainWindow(void) {
 
 %end
 
-// 修改 URL Protocol 以使用新的日志系统
-%hook DYYYURLProtocol
+// 完整实现 DYYYURLProtocol 类
+@implementation DYYYURLProtocol
 
 + (BOOL)canInitWithRequest:(NSURLRequest *)request {
     if ([NSURLProtocol propertyForKey:@"DYYYURLProtocolHandled" inRequest:request]) {
@@ -1579,7 +1576,44 @@ static UIWindow* GetMainWindow(void) {
     return NO;
 }
 
-%end
++ (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request {
+    return request;
+}
+
+- (void)startLoading {
+    NSMutableURLRequest *newRequest = [self.request mutableCopy];
+    [NSURLProtocol setProperty:@YES forKey:@"DYYYURLProtocolHandled" inRequest:newRequest];
+    
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
+    self.task = [session dataTaskWithRequest:newRequest];
+    [self.task resume];
+}
+
+- (void)stopLoading {
+    [self.task cancel];
+}
+
+#pragma mark - NSURLSessionDelegate
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
+    [[self client] URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+    completionHandler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+    [[self client] URLProtocol:self didLoadData:data];
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    if (error) {
+        [[self client] URLProtocol:self didFailWithError:error];
+    } else {
+        [[self client] URLProtocolDidFinishLoading:self];
+    }
+}
+
+@end
 
 // 在 %ctor 中注册 URL Protocol 和允许的域名
 %ctor {
