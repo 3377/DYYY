@@ -9,6 +9,171 @@
 #import <objc/runtime.h>
 #import "CityManager.h"
 
+// 添加日志管理器
+@interface DYYYLogger : NSObject
+@property (nonatomic, strong) NSFileHandle *logFileHandle;
+@property (nonatomic, copy) NSString *logFilePath;
++ (instancetype)sharedInstance;
+- (void)logEvent:(NSString *)event;
+- (void)logViewHierarchy:(UIView *)view withTitle:(NSString *)title;
+- (void)logRequest:(NSURLRequest *)request;
+@end
+
+@implementation DYYYLogger
+
++ (instancetype)sharedInstance {
+    static DYYYLogger *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[DYYYLogger alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    if (self = [super init]) {
+        // 创建日志文件
+        NSString *documentsPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        self.logFilePath = [documentsPath stringByAppendingPathComponent:@"dyyy_debug.log"];
+        
+        // 创建或清空日志文件
+        NSString *initialLog = [NSString stringWithFormat:@"=== DYYY Debug Log Start at %@ ===\n", 
+            [NSDateFormatter localizedStringFromDate:[NSDate date] 
+                                        dateStyle:NSDateFormatterMediumStyle 
+                                        timeStyle:NSDateFormatterMediumStyle]];
+        
+        NSError *error = nil;
+        [initialLog writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:&error];
+        
+        if (error) {
+            NSLog(@"[DYYY] Failed to create log file: %@", error);
+        } else {
+            NSLog(@"[DYYY] Log file created at: %@", self.logFilePath);
+        }
+        
+        // 打开文件句柄用于追加写入
+        self.logFileHandle = [NSFileHandle fileHandleForWritingAtPath:self.logFilePath];
+        [self.logFileHandle seekToEndOfFile];
+        
+        // 写入初始测试日志
+        [self logEvent:@"Logger initialized successfully"];
+    }
+    return self;
+}
+
+- (void)logEvent:(NSString *)event {
+    @synchronized (self) {
+        NSString *timestamp = [NSDateFormatter localizedStringFromDate:[NSDate date]
+                                                           dateStyle:NSDateFormatterNoStyle
+                                                           timeStyle:NSDateFormatterMediumStyle];
+        NSString *logEntry = [NSString stringWithFormat:@"[%@] %@\n", timestamp, event];
+        
+        // 同时输出到控制台和文件
+        NSLog(@"[DYYY] %@", logEntry);
+        
+        @try {
+            [self.logFileHandle writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
+            [self.logFileHandle synchronizeFile];
+        } @catch (NSException *exception) {
+            NSLog(@"[DYYY] Failed to write log: %@", exception);
+        }
+    }
+}
+
+- (void)logViewHierarchy:(UIView *)view withTitle:(NSString *)title {
+    @synchronized (self) {
+        NSMutableString *hierarchy = [NSMutableString stringWithFormat:@"\n=== %@ ===\n", title];
+        [self dumpView:view withIndent:0 toString:hierarchy];
+        [self logEvent:hierarchy];
+    }
+}
+
+- (void)logRequest:(NSURLRequest *)request {
+    @synchronized (self) {
+        NSMutableString *requestInfo = [NSMutableString stringWithString:@"\n=== Network Request ===\n"];
+        [requestInfo appendFormat:@"URL: %@\n", request.URL.absoluteString];
+        [requestInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
+        [requestInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
+        
+        if (request.HTTPBody) {
+            NSString *bodyString = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
+            [requestInfo appendFormat:@"Body: %@\n", bodyString];
+        }
+        
+        [self logEvent:requestInfo];
+    }
+}
+
+- (void)dumpView:(UIView *)view withIndent:(int)indent toString:(NSMutableString *)output {
+    NSString *indentString = [@"" stringByPaddingToLength:indent withString:@"  " startingAtIndex:0];
+    NSString *className = NSStringFromClass([view class]);
+    NSString *frame = NSStringFromCGRect(view.frame);
+    NSString *accessibilityLabel = view.accessibilityLabel ?: @"";
+    
+    [output appendFormat:@"%@%@ (Frame: %@, Label: %@)\n", 
+        indentString, className, frame, accessibilityLabel];
+    
+    for (UIView *subview in view.subviews) {
+        [self dumpView:subview withIndent:indent + 1 toString:output];
+    }
+}
+
+- (void)dealloc {
+    [self.logFileHandle closeFile];
+}
+
+@end
+
+// 添加获取主窗口的辅助方法
+static UIWindow* GetMainWindow(void) {
+    UIWindow *window = nil;
+    
+    if (@available(iOS 15.0, *)) {
+        NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
+        for (UIScene *scene in scenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                if (windowScene.activationState == UISceneActivationStateForegroundActive) {
+                    for (UIWindow *w in windowScene.windows) {
+                        if (w.isKeyWindow) {
+                            window = w;
+                            break;
+                        }
+                    }
+                    if (!window) {
+                        window = windowScene.windows.firstObject;
+                    }
+                    break;
+                }
+            }
+        }
+    } else if (@available(iOS 13.0, *)) {
+        NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
+        for (UIScene *scene in scenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                for (UIWindow *w in windowScene.windows) {
+                    if (w.isKeyWindow) {
+                        window = w;
+                        break;
+                    }
+                }
+                if (!window) {
+                    window = windowScene.windows.firstObject;
+                }
+                if (window) break;
+            }
+        }
+    }
+    
+    // 如果上面的方法都没找到窗口，使用传统方法
+    if (!window) {
+        window = [[UIApplication sharedApplication].windows firstObject];
+    }
+    
+    return window;
+}
+
 // 添加按钮信息收集器
 @interface DYYYButtonInfo : NSObject
 @property (nonatomic, copy) NSString *className;
@@ -328,46 +493,6 @@
                                                            preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
-}
-
-// 添加获取主窗口的辅助方法
-static UIWindow* GetMainWindow(void) {
-    UIWindow *window = nil;
-    
-    if (@available(iOS 15.0, *)) {
-        NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
-        for (UIScene *scene in scenes) {
-            if ([scene isKindOfClass:[UIWindowScene class]]) {
-                UIWindowScene *windowScene = (UIWindowScene *)scene;
-                if (windowScene.activationState == UISceneActivationStateForegroundActive) {
-                    window = windowScene.keyWindow;
-                    if (!window) {
-                        window = windowScene.windows.firstObject;
-                    }
-                    break;
-                }
-            }
-        }
-    } else if (@available(iOS 13.0, *)) {
-        NSSet<UIScene *> *scenes = UIApplication.sharedApplication.connectedScenes;
-        for (UIScene *scene in scenes) {
-            if ([scene isKindOfClass:[UIWindowScene class]]) {
-                UIWindowScene *windowScene = (UIWindowScene *)scene;
-                window = windowScene.keyWindow;
-                if (!window) {
-                    window = windowScene.windows.firstObject;
-                }
-                if (window) break;
-            }
-        }
-    }
-    
-    // 如果上面的方法都没找到窗口，使用传统方法
-    if (!window) {
-        window = UIApplication.sharedApplication.keyWindow;
-    }
-    
-    return window;
 }
 
 @end
@@ -1437,121 +1562,6 @@ static UIWindow* GetMainWindow(void) {
 // 添加 URL Protocol 处理类
 @interface DYYYURLProtocol : NSURLProtocol <NSURLSessionDelegate>
 @property (nonatomic, strong) NSURLSessionDataTask *task;
-@end
-
-// 添加日志管理器
-@interface DYYYLogger : NSObject
-@property (nonatomic, strong) NSFileHandle *logFileHandle;
-@property (nonatomic, copy) NSString *logFilePath;
-+ (instancetype)sharedInstance;
-- (void)logEvent:(NSString *)event;
-- (void)logViewHierarchy:(UIView *)view withTitle:(NSString *)title;
-- (void)logRequest:(NSURLRequest *)request;
-@end
-
-@implementation DYYYLogger
-
-+ (instancetype)sharedInstance {
-    static DYYYLogger *instance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        instance = [[DYYYLogger alloc] init];
-    });
-    return instance;
-}
-
-- (instancetype)init {
-    if (self = [super init]) {
-        // 创建日志文件
-        NSString *documentsPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
-        self.logFilePath = [documentsPath stringByAppendingPathComponent:@"dyyy_debug.log"];
-        
-        // 创建或清空日志文件
-        NSString *initialLog = [NSString stringWithFormat:@"=== DYYY Debug Log Start at %@ ===\n", 
-            [NSDateFormatter localizedStringFromDate:[NSDate date] 
-                                        dateStyle:NSDateFormatterMediumStyle 
-                                        timeStyle:NSDateFormatterMediumStyle]];
-        
-        NSError *error = nil;
-        [initialLog writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:&error];
-        
-        if (error) {
-            NSLog(@"[DYYY] Failed to create log file: %@", error);
-        } else {
-            NSLog(@"[DYYY] Log file created at: %@", self.logFilePath);
-        }
-        
-        // 打开文件句柄用于追加写入
-        self.logFileHandle = [NSFileHandle fileHandleForWritingAtPath:self.logFilePath];
-        [self.logFileHandle seekToEndOfFile];
-        
-        // 写入初始测试日志
-        [self logEvent:@"Logger initialized successfully"];
-    }
-    return self;
-}
-
-- (void)logEvent:(NSString *)event {
-    @synchronized (self) {
-        NSString *timestamp = [NSDateFormatter localizedStringFromDate:[NSDate date]
-                                                           dateStyle:NSDateFormatterNoStyle
-                                                           timeStyle:NSDateFormatterMediumStyle];
-        NSString *logEntry = [NSString stringWithFormat:@"[%@] %@\n", timestamp, event];
-        
-        // 同时输出到控制台和文件
-        NSLog(@"[DYYY] %@", logEntry);
-        
-        @try {
-            [self.logFileHandle writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
-            [self.logFileHandle synchronizeFile];
-        } @catch (NSException *exception) {
-            NSLog(@"[DYYY] Failed to write log: %@", exception);
-        }
-    }
-}
-
-- (void)logViewHierarchy:(UIView *)view withTitle:(NSString *)title {
-    @synchronized (self) {
-        NSMutableString *hierarchy = [NSMutableString stringWithFormat:@"\n=== %@ ===\n", title];
-        [self dumpView:view withIndent:0 toString:hierarchy];
-        [self logEvent:hierarchy];
-    }
-}
-
-- (void)logRequest:(NSURLRequest *)request {
-    @synchronized (self) {
-        NSMutableString *requestInfo = [NSMutableString stringWithString:@"\n=== Network Request ===\n"];
-        [requestInfo appendFormat:@"URL: %@\n", request.URL.absoluteString];
-        [requestInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
-        [requestInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
-        
-        if (request.HTTPBody) {
-            NSString *bodyString = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
-            [requestInfo appendFormat:@"Body: %@\n", bodyString];
-        }
-        
-        [self logEvent:requestInfo];
-    }
-}
-
-- (void)dumpView:(UIView *)view withIndent:(int)indent toString:(NSMutableString *)output {
-    NSString *indentString = [@"" stringByPaddingToLength:indent withString:@"  " startingAtIndex:0];
-    NSString *className = NSStringFromClass([view class]);
-    NSString *frame = NSStringFromCGRect(view.frame);
-    NSString *accessibilityLabel = view.accessibilityLabel ?: @"";
-    
-    [output appendFormat:@"%@%@ (Frame: %@, Label: %@)\n", 
-        indentString, className, frame, accessibilityLabel];
-    
-    for (UIView *subview in view.subviews) {
-        [self dumpView:subview withIndent:indent + 1 toString:output];
-    }
-}
-
-- (void)dealloc {
-    [self.logFileHandle closeFile];
-}
-
 @end
 
 // 添加触摸事件监听
