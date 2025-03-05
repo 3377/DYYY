@@ -1429,6 +1429,9 @@
     // 扩展检查的域名范围
     if ([urlString containsString:@"doubao.com"] || 
         [urlString containsString:@"tp-pay.snssdk.com"] ||
+        [urlString containsString:@"gateway-u"] ||
+        [urlString containsString:@"pay.snssdk.com/gateway"] ||
+        [urlString containsString:@"pay.snssdk.com/api"] ||
         [urlString containsString:@"douyin.com/wallet"] ||
         [urlString containsString:@"douyin.com/pay"] ||
         [urlString containsString:@"douyin.com/aweme/wallet"] ||
@@ -1529,6 +1532,8 @@
     NSString *className = NSStringFromClass([view class]);
     if ([className containsString:@"Doupack"] || 
         [className containsString:@"豆包"] || 
+        [className containsString:@"FlowKitBizUI.Message"] ||
+        [className containsString:@"PaymentView"] ||
         [view.accessibilityLabel isEqualToString:@"豆包"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             view.hidden = YES;
