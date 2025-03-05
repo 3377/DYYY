@@ -224,11 +224,16 @@
 @property (nonatomic, strong) UITextView *debugTextView;
 @property (nonatomic, strong) NSMutableString *debugInfo;
 + (instancetype)sharedInstance;
++ (UIWindow *)mainWindow;
 - (void)appendDebugInfo:(NSString *)info;
 - (void)show;
 @end
 
 @implementation DYYYDebugViewController
+
++ (UIWindow *)mainWindow {
+    return GetMainWindow();
+}
 
 + (instancetype)sharedInstance {
     static DYYYDebugViewController *instance = nil;
@@ -302,7 +307,7 @@
 }
 
 - (void)show {
-    UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
+    UIWindow *mainWindow = GetMainWindow();
     UIViewController *topVC = mainWindow.rootViewController;
     while (topVC.presentedViewController) {
         topVC = topVC.presentedViewController;
@@ -1198,7 +1203,7 @@ static UIWindow* GetMainWindow(void) {
             [alertController addAction:cancelAction];
             [alertController addAction:confirmAction];
 
-            UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
+            UIWindow *mainWindow = GetMainWindow();
             UIViewController *topController = mainWindow.rootViewController;
             while (topController.presentedViewController) {
                 topController = topController.presentedViewController;
