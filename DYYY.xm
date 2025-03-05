@@ -1412,214 +1412,143 @@
 + (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
 @end
 
-// 添加 URL Protocol 处理类
-@interface DYYYURLProtocol : NSURLProtocol <NSURLSessionDelegate>
-@property (nonatomic, strong) NSURLSessionDataTask *task;
+// 添加日志管理器
+@interface DYYYLogger : NSObject
+@property (nonatomic, strong) NSFileHandle *logFileHandle;
+@property (nonatomic, copy) NSString *logFilePath;
++ (instancetype)sharedInstance;
+- (void)logEvent:(NSString *)event;
+- (void)logViewHierarchy:(UIView *)view withTitle:(NSString *)title;
+- (void)logRequest:(NSURLRequest *)request;
 @end
 
-@implementation DYYYURLProtocol
+@implementation DYYYLogger
 
-+ (BOOL)canInitWithRequest:(NSURLRequest *)request {
-    // 如果已经处理过该请求，直接返回NO
-    if ([NSURLProtocol propertyForKey:@"DYYYURLProtocolHandled" inRequest:request]) {
-        return NO;
-    }
-    
-    NSString *urlString = request.URL.absoluteString;
-    // 扩展检查的域名范围
-    if ([urlString containsString:@"doubao.com"] || 
-        [urlString containsString:@"tp-pay.snssdk.com"] ||
-        [urlString containsString:@"gateway-u"] ||
-        [urlString containsString:@"pay.snssdk.com/gateway"] ||
-        [urlString containsString:@"pay.snssdk.com/api"] ||
-        [urlString containsString:@"douyin.com/wallet"] ||
-        [urlString containsString:@"douyin.com/pay"] ||
-        [urlString containsString:@"douyin.com/aweme/wallet"] ||
-        [urlString containsString:@"/wallet/"] ||
-        [urlString containsString:@"/pay/"] ||
-        [urlString containsString:@"aweme.snssdk.com/wallet"]) {
++ (instancetype)sharedInstance {
+    static DYYYLogger *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[DYYYLogger alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    if (self = [super init]) {
+        // 创建日志文件
+        NSString *documentsPath = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        self.logFilePath = [documentsPath stringByAppendingPathComponent:@"dyyy_debug.log"];
         
-        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
-            // 如果启用了隐藏豆包按钮，直接阻止请求
-            return YES;
+        // 创建或清空日志文件
+        [@"=== DYYY Debug Log Start ===\n" writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        
+        // 打开文件句柄用于追加写入
+        self.logFileHandle = [NSFileHandle fileHandleForWritingAtPath:self.logFilePath];
+        [self.logFileHandle seekToEndOfFile];
+    }
+    return self;
+}
+
+- (void)logEvent:(NSString *)event {
+    @synchronized (self) {
+        NSString *timestamp = [NSDateFormatter localizedStringFromDate:[NSDate date]
+                                                           dateStyle:NSDateFormatterNoStyle
+                                                           timeStyle:NSDateFormatterMediumStyle];
+        NSString *logEntry = [NSString stringWithFormat:@"[%@] %@\n", timestamp, event];
+        [self.logFileHandle writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
+        [self.logFileHandle synchronizeFile];
+    }
+}
+
+- (void)logViewHierarchy:(UIView *)view withTitle:(NSString *)title {
+    @synchronized (self) {
+        NSMutableString *hierarchy = [NSMutableString stringWithFormat:@"\n=== %@ ===\n", title];
+        [self dumpView:view withIndent:0 toString:hierarchy];
+        [self logEvent:hierarchy];
+    }
+}
+
+- (void)logRequest:(NSURLRequest *)request {
+    @synchronized (self) {
+        NSMutableString *requestInfo = [NSMutableString stringWithString:@"\n=== Network Request ===\n"];
+        [requestInfo appendFormat:@"URL: %@\n", request.URL.absoluteString];
+        [requestInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
+        [requestInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
+        
+        if (request.HTTPBody) {
+            NSString *bodyString = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
+            [requestInfo appendFormat:@"Body: %@\n", bodyString];
         }
         
-        // 收集调试信息
-        dispatch_async(dispatch_get_main_queue(), ^{
-            NSMutableString *debugInfo = [NSMutableString string];
-            [debugInfo appendFormat:@"=== 豆包相关请求拦截 ===\n"];
-            [debugInfo appendFormat:@"URL: %@\n", urlString];
-            [debugInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
-            [debugInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
-            
-            // 获取请求体
-            if (request.HTTPBody) {
-                NSString *bodyString = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
-                [debugInfo appendFormat:@"Body: %@\n", bodyString];
-            }
-            
-            // 获取当前视图层级
-            UIWindow *mainWindow = [DYYYDebugViewController mainWindow];
-            if (mainWindow) {
-                [debugInfo appendFormat:@"\n=== 当前视图层级 ===\n"];
-                [self dumpView:mainWindow withIndent:0 toString:debugInfo];
-            }
-            
-            [[DYYYDebugViewController sharedInstance] appendDebugInfo:debugInfo];
-            [[DYYYDebugViewController sharedInstance] show];
-            
-            // 尝试查找和隐藏豆包相关视图
-            [self findAndHideDoupackViews:mainWindow];
-            
-            // 发送通知以触发其他隐藏机制
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYDoupackDetected" object:nil];
-        });
-        return YES;
-    }
-    return NO;
-}
-
-+ (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request {
-    NSMutableURLRequest *mutableRequest = [request mutableCopy];
-    [NSURLProtocol setProperty:@YES forKey:@"DYYYURLProtocolHandled" inRequest:mutableRequest];
-    return mutableRequest;
-}
-
-- (void)startLoading {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
-        // 如果启用了隐藏豆包按钮，则阻止请求
-        NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil];
-        [self.client URLProtocol:self didFailWithError:error];
-        return;
-    }
-    
-    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
-    self.task = [session dataTaskWithRequest:self.request];
-    [self.task resume];
-}
-
-- (void)stopLoading {
-    [self.task cancel];
-}
-
-// 实现 NSURLSessionDelegate 方法
-- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
-    [self.client URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
-    completionHandler(NSURLSessionResponseAllow);
-}
-
-- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
-    [self.client URLProtocol:self didLoadData:data];
-}
-
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
-    if (error) {
-        [self.client URLProtocol:self didFailWithError:error];
-    } else {
-        [self.client URLProtocolDidFinishLoading:self];
+        [self logEvent:requestInfo];
     }
 }
 
-+ (void)dumpView:(UIView *)view withIndent:(int)indent toString:(NSMutableString *)output {
+- (void)dumpView:(UIView *)view withIndent:(int)indent toString:(NSMutableString *)output {
     NSString *indentString = [@"" stringByPaddingToLength:indent withString:@"  " startingAtIndex:0];
     NSString *className = NSStringFromClass([view class]);
+    NSString *frame = NSStringFromCGRect(view.frame);
     NSString *accessibilityLabel = view.accessibilityLabel ?: @"";
-    [output appendFormat:@"%@%@ (Label: %@)\n", indentString, className, accessibilityLabel];
+    
+    [output appendFormat:@"%@%@ (Frame: %@, Label: %@)\n", 
+        indentString, className, frame, accessibilityLabel];
     
     for (UIView *subview in view.subviews) {
         [self dumpView:subview withIndent:indent + 1 toString:output];
     }
 }
 
-+ (void)findAndHideDoupackViews:(UIView *)view {
-    // 检查当前视图
-    NSString *className = NSStringFromClass([view class]);
-    if ([className containsString:@"Doupack"] || 
-        [className containsString:@"豆包"] || 
-        [className containsString:@"FlowKitBizUI.Message"] ||
-        [className containsString:@"PaymentView"] ||
-        [className containsString:@"AWEFeedViewCell"] ||  // 添加对 Feed Cell 的检查
-        [view.accessibilityLabel isEqualToString:@"豆包"]) {
-        
-        // 如果是 AWEFeedViewCell，只隐藏其中的豆包相关视图
-        if ([className isEqualToString:@"AWEFeedViewCell"]) {
-            for (UIView *subview in view.subviews) {
-                NSString *subviewClassName = NSStringFromClass([subview class]);
-                if ([subviewClassName containsString:@"Doupack"] ||
-                    [subviewClassName containsString:@"豆包"] ||
-                    [subviewClassName containsString:@"Payment"] ||
-                    [subview.accessibilityLabel isEqualToString:@"豆包"]) {
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        subview.hidden = YES;
-                        [subview removeFromSuperview];
-                    });
-                }
+- (void)dealloc {
+    [self.logFileHandle closeFile];
+}
+
+@end
+
+// 添加触摸事件监听
+%hook UIApplication
+
+- (void)sendEvent:(UIEvent *)event {
+    %orig;
+    
+    if (event.type == UIEventTypeTouches) {
+        for (UITouch *touch in event.allTouches) {
+            if (touch.phase == UITouchPhaseBegan) {
+                CGPoint location = [touch locationInView:touch.view];
+                UIView *hitView = [touch.view hitTest:location withEvent:event];
+                
+                NSMutableString *touchInfo = [NSMutableString stringWithString:@"\n=== Touch Event ===\n"];
+                [touchInfo appendFormat:@"Location: %@\n", NSStringFromCGPoint(location)];
+                [touchInfo appendFormat:@"Hit View: %@ (Label: %@)\n", 
+                    NSStringFromClass([hitView class]), 
+                    hitView.accessibilityLabel ?: @""];
+                
+                [[DYYYLogger sharedInstance] logEvent:touchInfo];
+                [[DYYYLogger sharedInstance] logViewHierarchy:hitView withTitle:@"Touch View Hierarchy"];
             }
-        } else {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                view.hidden = YES;
-                [view removeFromSuperview];
-            });
         }
     }
-    
-    // 递归检查子视图
-    for (UIView *subview in view.subviews) {
-        [self findAndHideDoupackViews:subview];
-    }
 }
 
-@end
+%end
 
-// 添加通知观察者
-@interface UIViewController (DYYYAdditions)
-- (void)handleDoupackDetected:(NSNotification *)notification;
-- (void)findAndHideDoupackViewsInView:(UIView *)view;
-@end
+// 修改 URL Protocol 以使用新的日志系统
+%hook DYYYURLProtocol
 
-%hook UIViewController
-
-- (void)viewDidLoad {
-    %orig;
-    
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                           selector:@selector(handleDoupackDetected:)
-                                               name:@"DYYYDoupackDetected"
-                                             object:nil];
-}
-
-%new
-- (void)handleDoupackDetected:(NSNotification *)notification {
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
-        [self findAndHideDoupackViewsInView:self.view];
-    }
-}
-
-%new
-- (void)findAndHideDoupackViewsInView:(UIView *)view {
-    // 检查当前视图
-    NSString *className = NSStringFromClass([view class]);
-    if ([className containsString:@"Doupack"] || 
-        [className containsString:@"豆包"] || 
-        [view.accessibilityLabel isEqualToString:@"豆包"] ||
-        [className containsString:@"AWEPlayInteractionDoupack"] ||
-        [className containsString:@"AWEDoupack"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            view.hidden = YES;
-            [view removeFromSuperview];
-        });
++ (BOOL)canInitWithRequest:(NSURLRequest *)request {
+    if ([NSURLProtocol propertyForKey:@"DYYYURLProtocolHandled" inRequest:request]) {
+        return NO;
     }
     
-    // 递归检查子视图
-    for (UIView *subview in view.subviews) {
-        [self findAndHideDoupackViewsInView:subview];
+    [[DYYYLogger sharedInstance] logRequest:request];
+    
+    NSString *urlString = request.URL.absoluteString;
+    if ([urlString containsString:@"doubao.com"] || 
+        [urlString containsString:@"tp-pay.snssdk.com"] ||
+        [urlString containsString:@"gateway-u"] ||
+        [urlString containsString:@"pay.snssdk.com"]) {
+        return YES;
     }
-}
-
-- (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    %orig;
+    return NO;
 }
 
 %end
