@@ -818,69 +818,50 @@
 %end
 
 %hook UIButton
-
-- (void)setImage:(UIImage *)image forState:(UIControlState)state {
-    NSString *label = self.accessibilityLabel;
-//    NSLog(@"Label -> %@",accessibilityLabel);
-    if ([label isEqualToString:@"表情"] || [label isEqualToString:@"at"] || [label isEqualToString:@"图片"] || [label isEqualToString:@"键盘"]) {
-        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisDarkKeyBoard"]) {
-            
-            UIImage *whiteImage = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-            
-            self.tintColor = [UIColor whiteColor];
-            
-            %orig(whiteImage, state);
-        }else {
-            %orig(image, state);
-        }
-    } else {
-        %orig(image, state);
-    }
-}
-
-%end
-
-%hook UIButton
-
 - (void)layoutSubviews {
     %orig;
     
-    UIViewController *vc = [self firstAvailableUIViewController];
-    if ([vc isKindOfClass:%c(AWEPlayInteractionViewController)]) {
-        // 检查是否是豆包按钮
-        BOOL isDoupackButton = NO;
-        
-        // 方法1：通过 accessibilityLabel 判断
+    // 处理豆包按钮隐藏
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        // 1. 通过 accessibilityLabel 检测
         if ([self.accessibilityLabel isEqualToString:@"豆包"]) {
-            isDoupackButton = YES;
-        }
-        
-        // 方法2：通过父视图类名判断
-        UIView *superview = self.superview;
-        while (superview) {
-            if ([NSStringFromClass([superview class]) containsString:@"Doupack"]) {
-                isDoupackButton = YES;
-                break;
-            }
-            superview = superview.superview;
-        }
-        
-        // 方法3：通过按钮图片名称判断
-        if ([self imageForState:UIControlStateNormal]) {
-            NSString *imageName = [[self imageForState:UIControlStateNormal] description];
-            if ([imageName.lowercaseString containsString:@"doupack"] || 
-                [imageName.lowercaseString containsString:@"豆包"]) {
-                isDoupackButton = YES;
-            }
-        }
-        
-        // 如果是豆包按钮且设置为隐藏，则移除
-        if (isDoupackButton && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
             [self removeFromSuperview];
             return;
         }
         
-        // 添加按钮信息到自动生成设置
+        // 2. 通过父视图类名检测
+        UIView *parentView = self.superview;
+        while (parentView) {
+            NSString *className = NSStringFromClass([parentView class]);
+            if ([className containsString:@"Doupack"] || [className containsString:@"豆包"]) {
+                [self removeFromSuperview];
+                return;
+            }
+            parentView = parentView.superview;
+        }
+        
+        // 3. 通过图片名称检测
+        UIImage *image = [self imageForState:UIControlStateNormal];
+        if (image) {
+            NSString *imageName = [image description];
+            if ([imageName.lowercaseString containsString:@"doupack"] || 
+                [imageName.lowercaseString containsString:@"豆包"]) {
+                [self removeFromSuperview];
+                return;
+            }
+        }
+        
+        // 4. 通过按钮标题检测
+        NSString *title = [self titleForState:UIControlStateNormal];
+        if ([title containsString:@"豆包"]) {
+            [self removeFromSuperview];
+            return;
+        }
+    }
+    
+    // 处理自动生成设置
+    UIViewController *vc = [self firstAvailableUIViewController];
+    if ([vc isKindOfClass:%c(AWEPlayInteractionViewController)]) {
         DYYYButtonInfo *info = [DYYYButtonInfo infoWithClass:NSStringFromClass([self class])
                                                       label:self.accessibilityLabel
                                                       title:[self titleForState:UIControlStateNormal]
@@ -889,6 +870,18 @@
     }
 }
 
+- (void)setImage:(UIImage *)image forState:(UIControlState)state {
+    NSString *label = self.accessibilityLabel;
+    if ([label isEqualToString:@"表情"] || [label isEqualToString:@"at"] || [label isEqualToString:@"图片"] || [label isEqualToString:@"键盘"]) {
+        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYisDarkKeyBoard"]) {
+            UIImage *whiteImage = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+            self.tintColor = [UIColor whiteColor];
+            %orig(whiteImage, state);
+            return;
+        }
+    }
+    %orig(image, state);
+}
 %end
 
 %hook UIView
@@ -1124,43 +1117,6 @@
 
 %end
 
-//%ctor {
-//    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-//        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-//        [defaults registerDefaults:@{@"isShowDYYYAlert": @(NO)}];
-//
-//        if (![defaults boolForKey:@"isShowDYYYAlert"]) {
-//            [defaults setBool:YES forKey:@"isShowDYYYAlert"];
-//            [defaults synchronize];
-//
-//            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"by @huamidev"
-//                                                                           message:@"仅供学习交流 请在24小时内删除\n弹窗只会显示一次"
-//                                                                    preferredStyle:UIAlertControllerStyleAlert];
-//
-//            UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil];
-//            [alert addAction:okAction];
-//
-//            UIAlertAction *goToChannelAction = [UIAlertAction actionWithTitle:@"前往频道" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-//                UIApplication *application = [UIApplication sharedApplication];
-//                NSURL *tgTestURL = [NSURL URLWithString:@"tg://"];
-//                NSURL *telegramTestURL = [NSURL URLWithString:@"telegram://"];
-//
-//                if ([application canOpenURL:tgTestURL] || [application canOpenURL:telegramTestURL]) {
-//                    NSURL *tgURL = [NSURL URLWithString:@"tg://resolve?domain=huamidev"];
-//                    [application openURL:tgURL options:@{} completionHandler:nil];
-//                } else {
-//                    NSURL *webURL = [NSURL URLWithString:@"https://t.me/huamidev"];
-//                    [application openURL:webURL options:@{} completionHandler:nil];
-//                }
-//            }];
-//            [alert addAction:goToChannelAction];
-//
-//            UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
-//            [keyWindow.rootViewController presentViewController:alert animated:YES completion:nil];
-//        }
-//    });
-//}
-
 %hook AWEPlayInteractionDoupackElement
 - (void)layoutSubviews {
     %orig;
@@ -1239,49 +1195,6 @@
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
         self.hidden = YES;
         [self removeFromSuperview];
-    }
-}
-%end
-
-%hook UIButton
-- (void)layoutSubviews {
-    %orig;
-    
-    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
-        // 1. 通过 accessibilityLabel 检测
-        if ([self.accessibilityLabel isEqualToString:@"豆包"]) {
-            [self removeFromSuperview];
-            return;
-        }
-        
-        // 2. 通过父视图类名检测
-        UIView *parentView = self.superview;
-        while (parentView) {
-            NSString *className = NSStringFromClass([parentView class]);
-            if ([className containsString:@"Doupack"] || [className containsString:@"豆包"]) {
-                [self removeFromSuperview];
-                return;
-            }
-            parentView = parentView.superview;
-        }
-        
-        // 3. 通过图片名称检测
-        UIImage *image = [self imageForState:UIControlStateNormal];
-        if (image) {
-            NSString *imageName = [image description];
-            if ([imageName.lowercaseString containsString:@"doupack"] || 
-                [imageName.lowercaseString containsString:@"豆包"]) {
-                [self removeFromSuperview];
-                return;
-            }
-        }
-        
-        // 4. 通过按钮标题检测
-        NSString *title = [self titleForState:UIControlStateNormal];
-        if ([title containsString:@"豆包"]) {
-            [self removeFromSuperview];
-            return;
-        }
     }
 }
 %end
