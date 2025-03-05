@@ -1039,6 +1039,14 @@ static UIWindow* GetMainWindow(void) {
 - (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
     %orig;
     
+    // 记录所有按钮点击
+    NSString *buttonInfo = [NSString stringWithFormat:@"Button clicked - Class: %@, Label: %@, Title: %@",
+                           NSStringFromClass([self class]),
+                           self.accessibilityLabel ?: @"(no label)",
+                           [self titleForState:UIControlStateNormal] ?: @"(no title)"];
+    
+    [[DYYYLogger sharedInstance] logEvent:buttonInfo];
+    
     // 检查是否可能是豆包按钮
     BOOL isDoupackRelated = NO;
     
@@ -1060,22 +1068,16 @@ static UIWindow* GetMainWindow(void) {
     }
     
     if (isDoupackRelated) {
-        // 收集调试信息
+        // 收集豆包按钮相关的调试信息
         NSMutableString *debugInfo = [NSMutableString string];
-        
-        // 基本信息
-        [debugInfo appendFormat:@"=== 按钮基本信息 ===\n"];
+        [debugInfo appendFormat:@"\n=== 豆包按钮点击事件 ===\n"];
+        [debugInfo appendFormat:@"时间: %@\n", [NSDate date]];
         [debugInfo appendFormat:@"类名: %@\n", className];
         [debugInfo appendFormat:@"标识符: %@\n", self.accessibilityLabel];
         [debugInfo appendFormat:@"标题: %@\n", title];
         [debugInfo appendFormat:@"Frame: %@\n", NSStringFromCGRect(self.frame)];
         
-        // 图片信息
-        [debugInfo appendFormat:@"\n=== 图片信息 ===\n"];
-        UIImage *normalImage = [self imageForState:UIControlStateNormal];
-        [debugInfo appendFormat:@"图片描述: %@\n", [normalImage description]];
-        
-        // 视图层级
+        // 记录视图层级
         [debugInfo appendFormat:@"\n=== 视图层级 ===\n"];
         UIView *currentView = self;
         int depth = 0;
@@ -1086,7 +1088,7 @@ static UIWindow* GetMainWindow(void) {
             depth++;
         }
         
-        // 显示调试信息
+        [[DYYYLogger sharedInstance] logEvent:debugInfo];
         [[DYYYDebugViewController sharedInstance] appendDebugInfo:debugInfo];
         [[DYYYDebugViewController sharedInstance] show];
     }
@@ -1465,11 +1467,26 @@ static UIWindow* GetMainWindow(void) {
         self.logFilePath = [documentsPath stringByAppendingPathComponent:@"dyyy_debug.log"];
         
         // 创建或清空日志文件
-        [@"=== DYYY Debug Log Start ===\n" writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        NSString *initialLog = [NSString stringWithFormat:@"=== DYYY Debug Log Start at %@ ===\n", 
+            [NSDateFormatter localizedStringFromDate:[NSDate date] 
+                                        dateStyle:NSDateFormatterMediumStyle 
+                                        timeStyle:NSDateFormatterMediumStyle]];
+        
+        NSError *error = nil;
+        [initialLog writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:&error];
+        
+        if (error) {
+            NSLog(@"[DYYY] Failed to create log file: %@", error);
+        } else {
+            NSLog(@"[DYYY] Log file created at: %@", self.logFilePath);
+        }
         
         // 打开文件句柄用于追加写入
         self.logFileHandle = [NSFileHandle fileHandleForWritingAtPath:self.logFilePath];
         [self.logFileHandle seekToEndOfFile];
+        
+        // 写入初始测试日志
+        [self logEvent:@"Logger initialized successfully"];
     }
     return self;
 }
@@ -1480,8 +1497,16 @@ static UIWindow* GetMainWindow(void) {
                                                            dateStyle:NSDateFormatterNoStyle
                                                            timeStyle:NSDateFormatterMediumStyle];
         NSString *logEntry = [NSString stringWithFormat:@"[%@] %@\n", timestamp, event];
-        [self.logFileHandle writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
-        [self.logFileHandle synchronizeFile];
+        
+        // 同时输出到控制台和文件
+        NSLog(@"[DYYY] %@", logEntry);
+        
+        @try {
+            [self.logFileHandle writeData:[logEntry dataUsingEncoding:NSUTF8StringEncoding]];
+            [self.logFileHandle synchronizeFile];
+        } @catch (NSException *exception) {
+            NSLog(@"[DYYY] Failed to write log: %@", exception);
+        }
     }
 }
 
@@ -1564,13 +1589,26 @@ static UIWindow* GetMainWindow(void) {
         return NO;
     }
     
-    [[DYYYLogger sharedInstance] logRequest:request];
-    
     NSString *urlString = request.URL.absoluteString;
     if ([urlString containsString:@"doubao.com"] || 
         [urlString containsString:@"tp-pay.snssdk.com"] ||
         [urlString containsString:@"gateway-u"] ||
         [urlString containsString:@"pay.snssdk.com"]) {
+        
+        // 记录相关网络请求
+        NSMutableString *requestInfo = [NSMutableString stringWithString:@"\n=== 豆包相关请求拦截 ===\n"];
+        [requestInfo appendFormat:@"URL: %@\n", urlString];
+        [requestInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
+        [requestInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
+        
+        if (request.HTTPBody) {
+            NSString *bodyString = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
+            [requestInfo appendFormat:@"Body: %@\n", bodyString];
+        }
+        
+        [[DYYYLogger sharedInstance] logEvent:requestInfo];
+        [[DYYYDebugViewController sharedInstance] appendDebugInfo:requestInfo];
+        
         return YES;
     }
     return NO;
