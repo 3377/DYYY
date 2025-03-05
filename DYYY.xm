@@ -1377,3 +1377,125 @@
 }
 %end
 
+// 添加网络请求拦截相关接口
+@interface NSURLRequest (Private)
++ (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
+@end
+
+@interface NSURLSession (Private)
++ (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
+@end
+
+// 添加 URL Protocol 处理类
+@interface DYYYURLProtocol : NSURLProtocol
+@end
+
+@implementation DYYYURLProtocol
+
++ (BOOL)canInitWithRequest:(NSURLRequest *)request {
+    NSString *urlString = request.URL.absoluteString;
+    if ([urlString containsString:@"doubao.com"]) {
+        // 收集调试信息
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSMutableString *debugInfo = [NSMutableString string];
+            [debugInfo appendFormat:@"=== 豆包请求拦截 ===\n"];
+            [debugInfo appendFormat:@"URL: %@\n", urlString];
+            [debugInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
+            [debugInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
+            
+            // 获取当前视图层级
+            UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
+            if (keyWindow) {
+                [debugInfo appendFormat:@"\n=== 当前视图层级 ===\n"];
+                [self dumpView:keyWindow withIndent:0 toString:debugInfo];
+            }
+            
+            [[DYYYDebugViewController sharedInstance] appendDebugInfo:debugInfo];
+            [[DYYYDebugViewController sharedInstance] show];
+            
+            // 尝试查找和隐藏豆包相关视图
+            [self findAndHideDoupackViews:keyWindow];
+        });
+        return YES;
+    }
+    return NO;
+}
+
++ (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request {
+    return request;
+}
+
++ (BOOL)requestIsCacheEquivalent:(NSURLRequest *)a toRequest:(NSURLRequest *)b {
+    return [super requestIsCacheEquivalent:a toRequest:b];
+}
+
+- (void)startLoading {
+    NSURLRequest *request = self.request;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        // 如果启用了隐藏豆包按钮，则阻止请求
+        NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil];
+        [self.client URLProtocol:self didFailWithError:error];
+        return;
+    }
+    
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
+    NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            [self.client URLProtocol:self didFailWithError:error];
+            return;
+        }
+        
+        [self.client URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+        if (data) {
+            [self.client URLProtocol:self didLoadData:data];
+        }
+        [self.client URLProtocolDidFinishLoading:self];
+    }];
+    [task resume];
+}
+
+- (void)stopLoading {
+    // 实现停止加载的逻辑
+}
+
++ (void)dumpView:(UIView *)view withIndent:(int)indent toString:(NSMutableString *)output {
+    NSString *indentString = [@"" stringByPaddingToLength:indent withString:@"  " startingAtIndex:0];
+    NSString *className = NSStringFromClass([view class]);
+    NSString *accessibilityLabel = view.accessibilityLabel ?: @"";
+    [output appendFormat:@"%@%@ (Label: %@)\n", indentString, className, accessibilityLabel];
+    
+    for (UIView *subview in view.subviews) {
+        [self dumpView:subview withIndent:indent + 1 toString:output];
+    }
+}
+
++ (void)findAndHideDoupackViews:(UIView *)view {
+    // 检查当前视图
+    NSString *className = NSStringFromClass([view class]);
+    if ([className containsString:@"Doupack"] || 
+        [className containsString:@"豆包"] || 
+        [view.accessibilityLabel isEqualToString:@"豆包"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            view.hidden = YES;
+            [view removeFromSuperview];
+        });
+    }
+    
+    // 递归检查子视图
+    for (UIView *subview in view.subviews) {
+        [self findAndHideDoupackViews:subview];
+    }
+}
+
+@end
+
+// 在 %ctor 中注册 URL Protocol
+%ctor {
+    // 注册 URL Protocol
+    [NSURLProtocol registerClass:[DYYYURLProtocol class]];
+    
+    // 允许自签名证书（用于调试）
+    [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"api-normal.doubao.com"];
+}
+
