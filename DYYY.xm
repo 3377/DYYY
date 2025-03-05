@@ -219,6 +219,113 @@
 @interface AWEDoupackIconView : UIView
 @end
 
+// 添加调试信息视图控制器
+@interface DYYYDebugViewController : UIViewController
+@property (nonatomic, strong) UITextView *debugTextView;
+@property (nonatomic, strong) NSMutableString *debugInfo;
++ (instancetype)sharedInstance;
+- (void)appendDebugInfo:(NSString *)info;
+- (void)show;
+@end
+
+@implementation DYYYDebugViewController
+
++ (instancetype)sharedInstance {
+    static DYYYDebugViewController *instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[DYYYDebugViewController alloc] init];
+    });
+    return instance;
+}
+
+- (instancetype)init {
+    if (self = [super init]) {
+        self.debugInfo = [NSMutableString string];
+        
+        // 设置视图控制器属性
+        self.modalPresentationStyle = UIModalPresentationFormSheet;
+        if (@available(iOS 13.0, *)) {
+            self.modalInPresentation = YES;
+        }
+        
+        // 创建文本视图
+        self.debugTextView = [[UITextView alloc] init];
+        self.debugTextView.editable = NO;
+        self.debugTextView.font = [UIFont systemFontOfSize:14];
+        self.debugTextView.backgroundColor = [UIColor blackColor];
+        self.debugTextView.textColor = [UIColor whiteColor];
+        
+        // 创建关闭按钮
+        UIButton *closeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [closeButton setTitle:@"关闭" forState:UIControlStateNormal];
+        [closeButton addTarget:self action:@selector(dismissDebugView) forControlEvents:UIControlEventTouchUpInside];
+        
+        // 创建复制按钮
+        UIButton *copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        [copyButton setTitle:@"复制" forState:UIControlStateNormal];
+        [copyButton addTarget:self action:@selector(copyDebugInfo) forControlEvents:UIControlEventTouchUpInside];
+        
+        // 添加视图
+        [self.view addSubview:self.debugTextView];
+        [self.view addSubview:closeButton];
+        [self.view addSubview:copyButton];
+        
+        // 设置约束
+        self.debugTextView.translatesAutoresizingMaskIntoConstraints = NO;
+        closeButton.translatesAutoresizingMaskIntoConstraints = NO;
+        copyButton.translatesAutoresizingMaskIntoConstraints = NO;
+        
+        [NSLayoutConstraint activateConstraints:@[
+            [self.debugTextView.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:50],
+            [self.debugTextView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:10],
+            [self.debugTextView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-10],
+            [self.debugTextView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-50],
+            
+            [closeButton.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:10],
+            [closeButton.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-10],
+            
+            [copyButton.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:10],
+            [copyButton.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:10],
+        ]];
+        
+        self.view.backgroundColor = [UIColor blackColor];
+    }
+    return self;
+}
+
+- (void)appendDebugInfo:(NSString *)info {
+    [self.debugInfo appendString:info];
+    [self.debugInfo appendString:@"\n"];
+    self.debugTextView.text = self.debugInfo;
+    [self.debugTextView scrollRangeToVisible:NSMakeRange(self.debugTextView.text.length, 0)];
+}
+
+- (void)show {
+    UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+    while (topVC.presentedViewController) {
+        topVC = topVC.presentedViewController;
+    }
+    [topVC presentViewController:self animated:YES completion:nil];
+}
+
+- (void)dismissDebugView {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)copyDebugInfo {
+    UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
+    pasteboard.string = self.debugInfo;
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"成功" 
+                                                                  message:@"调试信息已复制到剪贴板" 
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+@end
+
 %hook AWEAwemePlayVideoViewController
 
 - (void)setIsAutoPlay:(BOOL)arg0 {
@@ -882,6 +989,63 @@
     }
     %orig(image, state);
 }
+
+- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+    %orig;
+    
+    // 检查是否可能是豆包按钮
+    BOOL isDoupackRelated = NO;
+    
+    // 1. 检查类名
+    NSString *className = NSStringFromClass([self class]);
+    if ([className containsString:@"Doupack"] || [className containsString:@"豆包"]) {
+        isDoupackRelated = YES;
+    }
+    
+    // 2. 检查标识符
+    if ([self.accessibilityLabel isEqualToString:@"豆包"]) {
+        isDoupackRelated = YES;
+    }
+    
+    // 3. 检查标题
+    NSString *title = [self titleForState:UIControlStateNormal];
+    if ([title containsString:@"豆包"]) {
+        isDoupackRelated = YES;
+    }
+    
+    if (isDoupackRelated) {
+        // 收集调试信息
+        NSMutableString *debugInfo = [NSMutableString string];
+        
+        // 基本信息
+        [debugInfo appendFormat:@"=== 按钮基本信息 ===\n"];
+        [debugInfo appendFormat:@"类名: %@\n", className];
+        [debugInfo appendFormat:@"标识符: %@\n", self.accessibilityLabel];
+        [debugInfo appendFormat:@"标题: %@\n", title];
+        [debugInfo appendFormat:@"Frame: %@\n", NSStringFromCGRect(self.frame)];
+        
+        // 图片信息
+        [debugInfo appendFormat:@"\n=== 图片信息 ===\n"];
+        UIImage *normalImage = [self imageForState:UIControlStateNormal];
+        [debugInfo appendFormat:@"图片描述: %@\n", [normalImage description]];
+        
+        // 视图层级
+        [debugInfo appendFormat:@"\n=== 视图层级 ===\n"];
+        UIView *currentView = self;
+        int depth = 0;
+        while (currentView) {
+            NSString *indent = [@"" stringByPaddingToLength:depth withString:@"  " startingAtIndex:0];
+            [debugInfo appendFormat:@"%@%@\n", indent, NSStringFromClass([currentView class])];
+            currentView = currentView.superview;
+            depth++;
+        }
+        
+        // 显示调试信息
+        [[DYYYDebugViewController sharedInstance] appendDebugInfo:debugInfo];
+        [[DYYYDebugViewController sharedInstance] show];
+    }
+}
+
 %end
 
 %hook UIView
