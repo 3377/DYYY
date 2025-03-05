@@ -1439,6 +1439,11 @@
         [urlString containsString:@"/pay/"] ||
         [urlString containsString:@"aweme.snssdk.com/wallet"]) {
         
+        if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+            // 如果启用了隐藏豆包按钮，直接阻止请求
+            return YES;
+        }
+        
         // 收集调试信息
         dispatch_async(dispatch_get_main_queue(), ^{
             NSMutableString *debugInfo = [NSMutableString string];
@@ -1534,11 +1539,29 @@
         [className containsString:@"豆包"] || 
         [className containsString:@"FlowKitBizUI.Message"] ||
         [className containsString:@"PaymentView"] ||
+        [className containsString:@"AWEFeedViewCell"] ||  // 添加对 Feed Cell 的检查
         [view.accessibilityLabel isEqualToString:@"豆包"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            view.hidden = YES;
-            [view removeFromSuperview];
-        });
+        
+        // 如果是 AWEFeedViewCell，只隐藏其中的豆包相关视图
+        if ([className isEqualToString:@"AWEFeedViewCell"]) {
+            for (UIView *subview in view.subviews) {
+                NSString *subviewClassName = NSStringFromClass([subview class]);
+                if ([subviewClassName containsString:@"Doupack"] ||
+                    [subviewClassName containsString:@"豆包"] ||
+                    [subviewClassName containsString:@"Payment"] ||
+                    [subview.accessibilityLabel isEqualToString:@"豆包"]) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        subview.hidden = YES;
+                        [subview removeFromSuperview];
+                    });
+                }
+            }
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                view.hidden = YES;
+                [view removeFromSuperview];
+            });
+        }
     }
     
     // 递归检查子视图
