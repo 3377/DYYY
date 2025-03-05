@@ -213,6 +213,12 @@
 @interface AWEDoupackContainerView : UIView
 @end
 
+@interface AWEPlayInteractionDoupackView : UIView
+@end
+
+@interface AWEDoupackIconView : UIView
+@end
+
 %hook AWEAwemePlayVideoViewController
 
 - (void)setIsAutoPlay:(BOOL)arg0 {
@@ -1154,4 +1160,143 @@
 //        }
 //    });
 //}
+
+%hook AWEPlayInteractionDoupackElement
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+%end
+
+%hook AWEDoupackContainerView
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+%end
+
+%hook AWEDoupackButton
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+%end
+
+%hook AWEPlayInteractionDoupackView
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+%end
+
+%hook AWEDoupackIconView
+- (void)layoutSubviews {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+
+- (void)didMoveToSuperview {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        self.hidden = YES;
+        [self removeFromSuperview];
+    }
+}
+%end
+
+%hook UIButton
+- (void)layoutSubviews {
+    %orig;
+    
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        // 1. 通过 accessibilityLabel 检测
+        if ([self.accessibilityLabel isEqualToString:@"豆包"]) {
+            [self removeFromSuperview];
+            return;
+        }
+        
+        // 2. 通过父视图类名检测
+        UIView *parentView = self.superview;
+        while (parentView) {
+            NSString *className = NSStringFromClass([parentView class]);
+            if ([className containsString:@"Doupack"] || [className containsString:@"豆包"]) {
+                [self removeFromSuperview];
+                return;
+            }
+            parentView = parentView.superview;
+        }
+        
+        // 3. 通过图片名称检测
+        UIImage *image = [self imageForState:UIControlStateNormal];
+        if (image) {
+            NSString *imageName = [image description];
+            if ([imageName.lowercaseString containsString:@"doupack"] || 
+                [imageName.lowercaseString containsString:@"豆包"]) {
+                [self removeFromSuperview];
+                return;
+            }
+        }
+        
+        // 4. 通过按钮标题检测
+        NSString *title = [self titleForState:UIControlStateNormal];
+        if ([title containsString:@"豆包"]) {
+            [self removeFromSuperview];
+            return;
+        }
+    }
+}
+%end
+
+%hook UIView
+- (void)didMoveToWindow {
+    %orig;
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        NSString *className = NSStringFromClass([self class]);
+        if ([className containsString:@"Doupack"] || 
+            [className containsString:@"豆包"] || 
+            [self.accessibilityLabel isEqualToString:@"豆包"]) {
+            [self removeFromSuperview];
+        }
+    }
+}
+%end
 

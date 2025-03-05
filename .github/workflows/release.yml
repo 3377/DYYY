@@ -47,31 +47,36 @@ jobs:
           make package FINALPACKAGE=1
           make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
           make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1
+          ls -la packages/
 
       # 上传所有 deb 包作为一个压缩文件
       - name: Upload All Deb packages
         uses: actions/upload-artifact@v4.3.3
         with:
           name: DYYY-All
-          path: ${{ github.workspace }}/packages/*.deb
+          path: packages/*.deb
+          if-no-files-found: error
 
       # 单独上传普通版本
       - name: Upload Normal Version
         uses: actions/upload-artifact@v4.3.3
         with:
           name: DYYY-Normal
-          path: ${{ github.workspace }}/packages/com.huami.dyyy_*.deb
+          path: packages/*[0-9].deb
+          if-no-files-found: error
 
       # 单独上传 rootless 版本
       - name: Upload Rootless Version
         uses: actions/upload-artifact@v4.3.3
         with:
           name: DYYY-Rootless
-          path: ${{ github.workspace }}/packages/com.huami.dyyy-rootless_*.deb
+          path: packages/*rootless*.deb
+          if-no-files-found: warn
 
       # 单独上传 roothide 版本
       - name: Upload Roothide Version
         uses: actions/upload-artifact@v4.3.3
         with:
           name: DYYY-Roothide
-          path: ${{ github.workspace }}/packages/com.huami.dyyy-roothide_*.deb
+          path: packages/*roothide*.deb
+          if-no-files-found: warn
