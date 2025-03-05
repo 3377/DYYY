@@ -1387,21 +1387,42 @@
 @end
 
 // 添加 URL Protocol 处理类
-@interface DYYYURLProtocol : NSURLProtocol
+@interface DYYYURLProtocol : NSURLProtocol <NSURLSessionDelegate>
+@property (nonatomic, strong) NSURLSessionDataTask *task;
 @end
 
 @implementation DYYYURLProtocol
 
 + (BOOL)canInitWithRequest:(NSURLRequest *)request {
+    // 如果已经处理过该请求，直接返回NO
+    if ([NSURLProtocol propertyForKey:@"DYYYURLProtocolHandled" inRequest:request]) {
+        return NO;
+    }
+    
     NSString *urlString = request.URL.absoluteString;
-    if ([urlString containsString:@"doubao.com"]) {
+    // 扩展检查的域名范围
+    if ([urlString containsString:@"doubao.com"] || 
+        [urlString containsString:@"tp-pay.snssdk.com"] ||
+        [urlString containsString:@"douyin.com/wallet"] ||
+        [urlString containsString:@"douyin.com/pay"] ||
+        [urlString containsString:@"douyin.com/aweme/wallet"] ||
+        [urlString containsString:@"/wallet/"] ||
+        [urlString containsString:@"/pay/"] ||
+        [urlString containsString:@"aweme.snssdk.com/wallet"]) {
+        
         // 收集调试信息
         dispatch_async(dispatch_get_main_queue(), ^{
             NSMutableString *debugInfo = [NSMutableString string];
-            [debugInfo appendFormat:@"=== 豆包请求拦截 ===\n"];
+            [debugInfo appendFormat:@"=== 豆包相关请求拦截 ===\n"];
             [debugInfo appendFormat:@"URL: %@\n", urlString];
             [debugInfo appendFormat:@"Method: %@\n", request.HTTPMethod];
             [debugInfo appendFormat:@"Headers: %@\n", request.allHTTPHeaderFields];
+            
+            // 获取请求体
+            if (request.HTTPBody) {
+                NSString *bodyString = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
+                [debugInfo appendFormat:@"Body: %@\n", bodyString];
+            }
             
             // 获取当前视图层级
             UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
@@ -1415,6 +1436,9 @@
             
             // 尝试查找和隐藏豆包相关视图
             [self findAndHideDoupackViews:keyWindow];
+            
+            // 发送通知以触发其他隐藏机制
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"DYYYDoupackDetected" object:nil];
         });
         return YES;
     }
@@ -1422,15 +1446,12 @@
 }
 
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request {
-    return request;
-}
-
-+ (BOOL)requestIsCacheEquivalent:(NSURLRequest *)a toRequest:(NSURLRequest *)b {
-    return [super requestIsCacheEquivalent:a toRequest:b];
+    NSMutableURLRequest *mutableRequest = [request mutableCopy];
+    [NSURLProtocol setProperty:@YES forKey:@"DYYYURLProtocolHandled" inRequest:mutableRequest];
+    return mutableRequest;
 }
 
 - (void)startLoading {
-    NSURLRequest *request = self.request;
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
         // 如果启用了隐藏豆包按钮，则阻止请求
         NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil];
@@ -1440,23 +1461,30 @@
     
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
     NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
-    NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (error) {
-            [self.client URLProtocol:self didFailWithError:error];
-            return;
-        }
-        
-        [self.client URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
-        if (data) {
-            [self.client URLProtocol:self didLoadData:data];
-        }
-        [self.client URLProtocolDidFinishLoading:self];
-    }];
-    [task resume];
+    self.task = [session dataTaskWithRequest:self.request];
+    [self.task resume];
 }
 
 - (void)stopLoading {
-    // 实现停止加载的逻辑
+    [self.task cancel];
+}
+
+// 实现 NSURLSessionDelegate 方法
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
+    [self.client URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+    completionHandler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+    [self.client URLProtocol:self didLoadData:data];
+}
+
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    if (error) {
+        [self.client URLProtocol:self didFailWithError:error];
+    } else {
+        [self.client URLProtocolDidFinishLoading:self];
+    }
 }
 
 + (void)dumpView:(UIView *)view withIndent:(int)indent toString:(NSMutableString *)output {
@@ -1490,12 +1518,69 @@
 
 @end
 
-// 在 %ctor 中注册 URL Protocol
+// 添加通知观察者
+%hook UIViewController
+
+- (void)viewDidLoad {
+    %orig;
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                           selector:@selector(handleDoupackDetected:)
+                                               name:@"DYYYDoupackDetected"
+                                             object:nil];
+}
+
+%new
+- (void)handleDoupackDetected:(NSNotification *)notification {
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        // 递归查找并隐藏豆包相关视图
+        [self findAndHideDoupackViewsInView:self.view];
+    }
+}
+
+%new
+- (void)findAndHideDoupackViewsInView:(UIView *)view {
+    // 检查当前视图
+    NSString *className = NSStringFromClass([view class]);
+    if ([className containsString:@"Doupack"] || 
+        [className containsString:@"豆包"] || 
+        [view.accessibilityLabel isEqualToString:@"豆包"] ||
+        [className containsString:@"AWEPlayInteractionDoupack"] ||
+        [className containsString:@"AWEDoupack"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            view.hidden = YES;
+            [view removeFromSuperview];
+        });
+    }
+    
+    // 递归检查子视图
+    for (UIView *subview in view.subviews) {
+        [self findAndHideDoupackViewsInView:subview];
+    }
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    %orig;
+}
+
+%end
+
+// 在 %ctor 中注册 URL Protocol 和允许的域名
 %ctor {
     // 注册 URL Protocol
     [NSURLProtocol registerClass:[DYYYURLProtocol class]];
     
     // 允许自签名证书（用于调试）
-    [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"api-normal.doubao.com"];
+    NSArray *domains = @[
+        @"api-normal.doubao.com",
+        @"tp-pay.snssdk.com",
+        @"api.douyin.com",
+        @"aweme.snssdk.com"
+    ];
+    
+    for (NSString *domain in domains) {
+        [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:domain];
+    }
 }
 
