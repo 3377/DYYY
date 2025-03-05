@@ -207,6 +207,12 @@
 @property (nonatomic, strong) AWEAwemeModel *model;
 @end
 
+@interface AWEPlayInteractionDoupackElement : UIView
+@end
+
+@interface AWEDoupackContainerView : UIView
+@end
+
 %hook AWEAwemePlayVideoViewController
 
 - (void)setIsAutoPlay:(BOOL)arg0 {
@@ -390,32 +396,6 @@
     return [UIColor colorWithRed:(red / 255.0) green:(green / 255.0) blue:(blue / 255.0) alpha:1.0];
 }
 %end
-
-//%hook UIWindow
-//- (instancetype)initWithFrame:(CGRect)frame {
-//    UIWindow *window = %orig(frame);
-//    if (window) {
-//        UITapGestureRecognizer *doubleTapGesture = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTapGesture:)];
-//        doubleTapGesture.numberOfTapsRequired = 1;
-//        doubleTapGesture.numberOfTouchesRequired = 3;
-//        [window addGestureRecognizer:doubleTapGesture];
-//    }
-//    return window;
-//}
-//
-//%new
-//- (void)handleDoubleTapGesture:(UITapGestureRecognizer *)gesture {
-//    if (gesture.state == UIGestureRecognizerStateRecognized) {
-//        UIViewController *rootViewController = self.rootViewController;
-//        if (rootViewController) {
-//            UIViewController *settingVC = [[NSClassFromString(@"DYYYSettingViewController") alloc] init];
-//            if (settingVC) {
-//                [rootViewController presentViewController:settingVC animated:YES completion:nil];
-//            }
-//        }
-//    }
-//}
-//%end
 
 %hook UIWindow
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -861,15 +841,61 @@
     
     UIViewController *vc = [self firstAvailableUIViewController];
     if ([vc isKindOfClass:%c(AWEPlayInteractionViewController)]) {
+        // 检查是否是豆包按钮
+        BOOL isDoupackButton = NO;
+        
+        // 方法1：通过 accessibilityLabel 判断
+        if ([self.accessibilityLabel isEqualToString:@"豆包"]) {
+            isDoupackButton = YES;
+        }
+        
+        // 方法2：通过父视图类名判断
+        UIView *superview = self.superview;
+        while (superview) {
+            if ([NSStringFromClass([superview class]) containsString:@"Doupack"]) {
+                isDoupackButton = YES;
+                break;
+            }
+            superview = superview.superview;
+        }
+        
+        // 方法3：通过按钮图片名称判断
+        if ([self imageForState:UIControlStateNormal]) {
+            NSString *imageName = [[self imageForState:UIControlStateNormal] description];
+            if ([imageName.lowercaseString containsString:@"doupack"] || 
+                [imageName.lowercaseString containsString:@"豆包"]) {
+                isDoupackButton = YES;
+            }
+        }
+        
+        // 如果是豆包按钮且设置为隐藏，则移除
+        if (isDoupackButton && [[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+            [self removeFromSuperview];
+            return;
+        }
+        
+        // 添加按钮信息到自动生成设置
         DYYYButtonInfo *info = [DYYYButtonInfo infoWithClass:NSStringFromClass([self class])
                                                       label:self.accessibilityLabel
                                                       title:[self titleForState:UIControlStateNormal]
                                                       frame:self.frame];
         [[DYYYButtonManager sharedInstance] addButtonInfo:info];
-        
-        // 检查是否需要隐藏
-        NSString *settingKey = [DYYYButtonManager sharedInstance].buttonSettings[self.accessibilityLabel];
-        if (settingKey && [[NSUserDefaults standardUserDefaults] boolForKey:settingKey]) {
+    }
+}
+
+%end
+
+%hook UIView
+
+- (void)didMoveToSuperview {
+    %orig;
+    
+    if ([[NSUserDefaults standardUserDefaults] boolForKey:@"DYYYHideDoupackButton"]) {
+        // 检查是否是豆包相关视图
+        NSString *className = NSStringFromClass([self class]);
+        if ([className containsString:@"Doupack"] || 
+            [self.accessibilityLabel isEqualToString:@"豆包"]) {
+            self.hidden = YES;
             [self removeFromSuperview];
         }
     }
