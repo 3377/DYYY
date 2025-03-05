@@ -43,7 +43,6 @@ typedef NS_ENUM(NSInteger, DYYYSettingItemType) {
 @property (nonatomic, strong) UILabel *footerLabel;
 @property (nonatomic, strong) NSMutableArray<NSString *> *sectionTitles;
 @property (nonatomic, strong) NSMutableSet *expandedSections;
-@property (nonatomic, strong) UISwitch *hideDoupackButtonSwitch;
 
 @end
 
